@@ -1,0 +1,94 @@
+pipeline {
+    agent any
+    environment {
+        git_repo_url = "https://github.com/crazy4devops/sonar-scanning-examples.git"
+        git_repo_br = "master"
+    }
+    stages{
+        stage("Checkout"){
+            steps {
+                // Clean before build
+                cleanWs()
+                git url: "${git_repo_url}", branch: "${git_repo_br}"
+            }
+        }
+        stage("printEnv"){
+            steps {
+                sh "printenv"
+            }
+        }
+        stage("Build Source Code"){
+            steps {
+                
+                dir('sonarqube-scanner-maven/maven-basic') {
+                    sh "mvn install"
+                    sh "mv target/*.jar target/sonarscanner-maven-basic-1.0-SNAPSHOT-${BUILD_NUMBER}.jar"
+                }
+            }
+        }
+        stage("Run Unit-Tests"){
+            steps {
+                dir('sonarqube-scanner-maven/maven-basic') {
+                    sh "mvn test"
+                }
+            }
+        }
+        stage('Sonarqube Analysis') {
+            environment {
+              def scannerHome = tool 'SonarQubeScanner'
+            }
+            steps {  
+                withSonarQubeEnv('sonarserver') {
+                    dir('sonarqube-scanner-maven/maven-basic') {
+                        sh "/opt/sonar/bin/sonar-scanner"
+                        //sh "${scannerHome}/bin/sonar-scanner"
+                    }
+                }
+                sleep time: 30000, unit: 'MILLISECONDS'
+                script {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                        }
+                }
+            }
+        }
+        stage("Upload Artifacts"){
+            steps{
+                dir('sonarqube-scanner-maven/maven-basic'){
+                    rtUpload (
+                        serverId: 'jfrog-server',
+                        spec: '''{
+                            "files": [
+                                {
+                                "pattern": "target/*.jar",
+                                "target": "demo1/"
+                                }
+                            ]
+                        }''',
+                    )
+
+                }
+                    
+            }
+        }            
+
+        stage("Deploy - DEV"){
+            steps{
+                echo "Running Deployment on Dev"
+            }
+        }  
+        
+        stage("Deploy - UAT"){
+            steps{
+                echo "Running Deployment on UAT"
+            }
+        }
+        stage("Deploy - PRD"){
+            steps{
+                echo "Running Deployment on PRD"
+            }
+        } 
+    
+    }
+}
